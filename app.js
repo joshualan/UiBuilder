@@ -68,28 +68,89 @@
                     .then(function (providers) {
                         // TODO: Check if valid data provider is specified and retrun an error if not.
                         var provider = providers[dataProviders[0]],
-                            jsdoSession = new progress.data.JSDOSession(provider);
-
-                    // TODO: Optimize the code block below
-                        loginModal().then(function (result) {
-                            jsdoSession.login(result.email, result.password)
-                                .done(function (jsdosession) {
-                                    jsdosession.addCatalog(provider.catalogUris[0])
-                                        .done(function(){
-                                            sessions[dataProviders[0]] = true;
-                                            $state.go(toState.name, toParams);
+                            authProviderFromDataProvidersFile,
+                            authProviderInstance,
+                            jsdoSession;
+                            
+                        if (provider.authenticationModel === progress.data.Session.AUTH_TYPE_OECP) {
+                            // has the data provider's AuthenticationProvider already been created?
+                            if (sessions[provider.authenticationProvider]) {
+                                // set the provider option-object's authImpl property so it has the AuthenticationProvider object
+                                provider.authImpl = {
+                                                        provider: sessions[provider.authenticationProvider]
+                                                    };
+                                jsdoSession = new progress.data.JSDOSession(provider);
+                                jsdoSession.login()
+                                    .done(function (jsdosession) {
+                                        jsdosession.addCatalog(provider.catalogUris[0])
+                                            .done(function(){
+                                                sessions[dataProviders[0]] = true;
+                                                $state.go(toState.name, toParams);
+                                            })
+                                            .fail(function(jsdosession, result, details){
+                                                console.log(details);
+                                            });
+                                    })
+                                    .fail(function(jsdosession, result, info){
+                                        console.log(info);
+                                    });
+                            } else {
+                                authProviderFromDataProvidersFile = providers[provider.authenticationProvider];
+                                authProviderInstance = 
+                                     new progress.data.AuthenticationProvider(authProviderFromDataProvidersFile.authenticationURI);
+                                loginModal().then(function (result) {
+                                    authProviderInstance.authenticate(result.email, result.password)
+                                        .done(function (apInstance) {
+                                            sessions[provider.authenticationProvider] = apInstance;
+                                            provider.authImpl = {
+                                                                    provider: apInstance
+                                                                };
+                                            jsdoSession = new progress.data.JSDOSession(provider);
+                                            jsdoSession.login()
+                                                .done(function (jsdosession) {
+                                                    jsdosession.addCatalog(provider.catalogUris[0])
+                                                        .done(function(){
+                                                            sessions[dataProviders[0]] = true;
+                                                            $state.go(toState.name, toParams);
+                                                        })
+                                                        .fail(function(jsdosession, result, details){
+                                                            console.log(details);
+                                                        });
+                                                })
+                                                .fail(function(jsdosession, result, info){
+                                                    console.log(info);
+                                                });
                                         })
-                                        .fail(function(jsdosession, result, details){
-                                            console.log(details);
+                                        .fail(function(ap, result, info){
+                                            console.log("failed to get token \n" + info);
                                         });
                                 })
-                                .fail(function(jsdosession, result, info){
-                                    console.log(info);
+                                .catch(function (reason) {
+                                    console.log(reason);
                                 });
-                        })
-                        .catch(function (reason) {
-                            console.log(reason);
-                        });
+                            }
+                        } else {
+                        // TODO: Optimize the code block below
+                            loginModal().then(function (result) {
+                                jsdoSession.login(result.email, result.password)
+                                    .done(function (jsdosession) {
+                                        jsdosession.addCatalog(provider.catalogUris[0])
+                                            .done(function(){
+                                                sessions[dataProviders[0]] = true;
+                                                $state.go(toState.name, toParams);
+                                            })
+                                            .fail(function(jsdosession, result, details){
+                                                console.log(details);
+                                            });
+                                    })
+                                    .fail(function(jsdosession, result, info){
+                                        console.log(info);
+                                    });
+                            })
+                            .catch(function (reason) {
+                                console.log(reason);
+                            });
+                        }
                     });
             });
         })
