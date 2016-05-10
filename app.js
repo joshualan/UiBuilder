@@ -3,14 +3,14 @@
 
     /**
      * @ngdoc overview
-     * @name SSO
+     * @name builderTest
      * @description
      * #
      *
      * Main module of the application.
      */
     angular
-        .module('SSO', [
+        .module('builderTest', [
             'ngAnimate',
             'ngCookies',
             'ngResource',
@@ -63,79 +63,78 @@
 
                 event.preventDefault();
 
-                loginSuccessHandler = function (jsdosession) {                    
-                    promise = jsdosession.addCatalog(provider.catalogUris[0]);
-                    promise.done(function() {                        
-                        sessions[dataProviders[0]] = true;
-                        $state.go(toState.name, toParams);
-                    }).fail(function(jsdosession, result, details){
-                        console.log(details);
-                    });
-                };
-                
-                loginFailHandler = function(jsdosession, result, info){                  
-                    console.log(info);
-                };
-                
                 // TODO: IMPORTANT: Must also handle fail.
-                getProviders().then(function (providers) {
-                        
-                    // TODO: Check if valid data provider is specified and retrun an error if not.
-                    var provider = providers[dataProviders[0]],
-                        authProviderFromDataProvidersFile,
-                        authProviderInstance,
-                        jsdoSession;
-                            
-                    if (provider.authenticationModel === progress.data.Session.AUTH_TYPE_OECP) {
-                        // has the data provider's AuthenticationProvider already been created?
-                        if (sessions[provider.authenticationProvider]) {
-                            // set the provider option-object's authImpl property so it has the AuthenticationProvider object
-                            provider.authImpl = {                    
-                                provider: sessions[provider.authenticationProvider]                    
+                getProviders()
+                    .then(function (providers) {
+                        // TODO: Check if valid data provider is specified and retrun an error if not.
+                        var provider = providers[dataProviders[0]],
+                            authProviderFromDataProvidersFile,
+                            authProviderInstance,
+                            jsdoSession,
+                            loginSuccessHandler = function (jsdosession) {
+                                jsdosession.addCatalog(provider.catalogUris[0]).then(function() {
+                                    sessions[dataProviders[0]] = true;
+                                    $state.go(toState.name, toParams);
+                                }, function(jsdosession, result, details){
+                                    console.log(details);
+                                });
+                            }, 
+                            loginFailureHandler = function(jsdosession, result, info){        
+                                console.log(info);
                             };
+                            
+                        if (provider.authenticationModel === progress.data.Session.AUTH_TYPE_OECP) {
+                            // has the data provider's AuthenticationProvider already been created?
+                            if (sessions[provider.authenticationProvider]) {
+                                // set the provider option-object's authImpl property so it has the AuthenticationProvider object
+                                provider.authImpl = {                    
+                                    provider: sessions[provider.authenticationProvider]                    
+                                };
                                 
-                            jsdoSession = new progress.data.JSDOSession(provider);
-                            return jsdoSession.login();
+                                jsdoSession = new progress.data.JSDOSession(provider);
+                                jsdoSession.login()
+                                    .then(loginSuccessHandler,loginSuccessHandler);
+                                
+                            } else {
+                                authProviderFromDataProvidersFile = providers[provider.authenticationProvider];
+                                authProviderInstance = 
+                                     new progress.data.AuthenticationProvider(authProviderFromDataProvidersFile.authenticationURI);
+                                loginModal().then(function (result) {
+                                    
+                                    // App fails if you refresh the page since we get an "Already authenticated" error.
+                                    // I'm invalidating the token just as a temporary fix.
+                                    authProviderInstance.invalidate();
+                                    
+                                    authProviderInstance.authenticate(result.email, result.password)
+                                        .done(function (apInstance) {
+                                        sessions[provider.authenticationProvider] = apInstance;
+                                        provider.authImpl = {    
+                                            provider: apInstance
+                                        };
+                                        
+                                        jsdoSession = new progress.data.JSDOSession(provider);
+                                        jsdoSession.login()
+                                            .then(loginSuccessHandler, loginFailureHandler);
+                                        
+                                    }).fail(function(ap, result, info){
+                                        console.log("failed to get token \n" + info);
+                                    });
+                                }).catch(function (reason) {
+                                    console.log(reason);
+                                });
+                            }
                         } else {
-                            authProviderFromDataProvidersFile = providers[provider.authenticationProvider];
-                            authProviderInstance = 
-                                new progress.data.AuthenticationProvider(authProviderFromDataProvidersFile.authenticationURI);
+                        // TODO: Optimize the code block below
+                            jsdoSession = new progress.data.JSDOSession(provider);
                             
                             loginModal().then(function (result) {
-                                authProviderInstance.authenticate(result.email, result.password).
-                                done(function (apInstance) {
-                                    sessions[provider.authenticationProvider] = apInstance;
-                                    provider.authImpl = {
-                                        provider: apInstance
-                                    };
-                                    
-                                    jsdoSession = new progress.data.JSDOSession(provider);
-                                    return jsdoSession.login();
-                                }).fail(function(ap, result, info){
-                                    console.log("failed to get token \n" + info);
-                                });
+                                jsdoSession.login(result.email, result.password)
+                                    .then(loginSuccessHandler, loginFailureHandler);
                             }).catch(function (reason) {
                                 console.log(reason);
                             });
+                
                         }
-                    } else {
-                        // TODO: Optimize the code block below
-                        loginModal().then(function (result) {
-                            return jsdoSession.login(result.email, result.password);
-                        }).catch(function (reason) {
-                            console.log(reason);
-                        });
-                    }
-                }).then(function (jsdosession) {                    
-                    promise = jsdosession.addCatalog(provider.catalogUris[0]);
-                    promise.done(function() {                        
-                        sessions[dataProviders[0]] = true;
-                        $state.go(toState.name, toParams);
-                    }).fail(function(jsdosession, result, details){
-                        console.log(details);
-                    });
-                }, function(jsdosession, result, info){                  
-                    console.log(info);
                 });
             });
         })
@@ -145,39 +144,9 @@
                     abstract:true,
                     url: '',
                     views: {
+                        'header': {"templateUrl":"components/static-header/template.html","controller":"StaticHeaderCtrl"},
+                        'main-navigation': {"templateUrl":"components/side-navigation/template.html","controller":"SideNavigationCtrl"},
                         
-                        'header': {
-                            templateUrl: 'components/header/template.html',
-                            controller: 'HeaderCtrl'
-                        },
-                        
-                        'side-navigation': {
-                            templateUrl: 'components/side-navigation/template.html',
-                            controller: 'SideNavigationCtrl'
-                        }
-                        
-                    }
-                })
-                .state('default.customer', {
-                    url: '/customer',
-                    views: {
-                        'content@': {
-                            templateUrl: 'modules/customer/views/index.html',
-                            controller: 'CustomerCtrl'
-                        }
-                    },
-                    resolve: {
-                        loadModule: ['$ocLazyLoad', function($ocLazyLoad) {
-                            return $ocLazyLoad.load('modules/customer/controllers/index.js');
-                        }]
-                    }
-                })
-                .state('default.customer.customer-view', {
-                    url: '/customer-view',
-                    templateUrl: 'modules/customer/views/customer-view.html',
-                    controller: 'CustomerCustomerViewCtrl',
-                    data: {
-                        ensureJsdos: ["SSOwh0331"]
                     }
                 })
                 .state('default.dashboard', {
@@ -194,34 +163,26 @@
                         }]
                     }
                 })
-                .state('default.employee', {
-                    url: '/employee',
+                .state('default.mod1', {
+                    url: '/mod-1',
                     views: {
                         'content@': {
-                            templateUrl: 'modules/employee/views/index.html',
-                            controller: 'EmployeeCtrl'
+                            templateUrl: 'modules/mod-1/views/index.html',
+                            controller: 'Mod1Ctrl'
                         }
                     },
                     resolve: {
                         loadModule: ['$ocLazyLoad', function($ocLazyLoad) {
-                            return $ocLazyLoad.load('modules/employee/controllers/index.js');
+                            return $ocLazyLoad.load('modules/mod-1/controllers/index.js');
                         }]
                     }
                 })
-                .state('default.employee.employee-view', {
-                    url: '/employee-view',
-                    templateUrl: 'modules/employee/views/employee-view.html',
-                    controller: 'EmployeeEmployeeViewCtrl',
+                .state('default.mod1.view-1', {
+                    url: '/view-1',
+                    templateUrl: 'modules/mod-1/views/view-1.html',
+                    controller: 'Mod1View1Ctrl',
                     data: {
-                        ensureJsdos: ["SSOwhTwo"]
-                    }
-                })
-                .state('default.employee.bin-view', {
-                    url: '/bin-view',
-                    templateUrl: 'modules/employee/views/bin-view.html',
-                    controller: 'EmployeeBinViewCtrl',
-                    data: {
-                        ensureJsdos: ["SSOwhTwo"]
+                        ensureJsdos: ["SSOConsumer"]
                     }
                 })
                 .state('login', {
