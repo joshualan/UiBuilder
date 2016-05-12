@@ -34,6 +34,7 @@
             };
         })
         .run(function ($q, $http, $rootScope, $state, $window, loginModal) {
+        
             var dataProviders,
                 sessions = {};
 
@@ -44,17 +45,97 @@
                     } else {
                         $http.get('data-providers.json')
                             .then(function (res) {
-                                dataProviders = res.data;
-                                resolve(dataProviders);
-                            }, function (res) {
-                                reject(new Error(res.data));
-                            });
-                    }
-                });
+                            dataProviders = res.data;
+                            resolve(dataProviders);
+                        }, function (res) {
+                            reject(new Error(res.data));
+                        });
+                        }
+                    });
             }
 
+            function getProvidersHandler(providers) {
+                // TODO: Check if valid data provider is specified and retrun an error if not.
+                var provider = providers[dataProviders[0]],
+                    authProviderFromDataProvidersFile,
+                    authProviderInstance,
+                    jsdoSession;
+                
+                function loginSuccessHandler(jsdosession) {
+                    jsdosession.addCatalog(provider.catalogUris[0])
+                        .then(function () {
+                            sessions[dataProviders[0]] = true;
+                            $state.go(toState.name, toParams);
+                        }, function (jsdosession, result, details) {
+                            console.log(details);
+                        });
+                }
+                
+                function loginFailureHandler(jsdosession, result, info) {
+                    console.log(info);
+                }
+
+                function authenticateSuccessHandler(apInstance) {
+                    sessions[provider.authenticationProvider] = apInstance;
+                    provider.authImpl = {
+                        provider: apInstance
+                    };
+
+                    jsdoSession = new progress.data.JSDOSession(provider);
+                    jsdoSession.login()
+                        .then(loginSuccessHandler, loginFailureHandler);
+                }
+                
+                function authenticateFailureHandler(ap, result, info) {
+                    console.log("Failed to get token \n" + info);                    
+                }
+                
+                function loginModalCatch(reason) {            
+                    console.log(reason);
+                }
+                
+                if (provider.authenticationModel === progress.data.Session.AUTH_TYPE_OECP) {
+                    // has the data provider's AuthenticationProvider already been created?
+                    if (sessions[provider.authenticationProvider]) {
+                        // set the provider option-object's authImpl property so it has the AuthenticationProvider object
+                        provider.authImpl = {
+                            provider: sessions[provider.authenticationProvider]
+                        };
+
+                        jsdoSession = new progress.data.JSDOSession(provider);
+                        jsdoSession.login()
+                            .then(loginSuccessHandler, loginFailureHandler);
+
+                    } else {
+                        authProviderFromDataProvidersFile = providers[provider.authenticationProvider];
+                        authProviderInstance =
+                            new progress.data.AuthenticationProvider(authProviderFromDataProvidersFile.authenticationURI);
+                        
+                        loginModal()
+                            .then(function (result) {
+
+                                if (!authProviderInstance.isAuthenticated()) {
+                                    authProviderInstance.authenticate(result.email, result.password)
+                                        .then(authenticateSuccessHandler, authenticateFailureHandler);
+                                }
+                            })
+                            .catch(loginModalCatch);
+                    }
+                } else {
+                    // TODO: Optimize the code block below
+                    jsdoSession = new progress.data.JSDOSession(provider);
+
+                    loginModal()
+                        .then(function (result) {
+                            jsdoSession.login(result.email, result.password)
+                                .then(loginSuccessHandler, loginFailureHandler);
+                        })
+                        .catch(loginModalCatch);
+                }
+            }
+        
             $rootScope.$on('$stateChangeStart', function (event, toState, toParams) {
-                 var dataProviders = toState.data ? toState.data.ensureJsdos : null;
+                var dataProviders = toState.data ? toState.data.ensureJsdos : null;
 
                 // TODO: IMPORTANT: Authenticaton logic must change to handle mutiple providers.
                 if (!dataProviders || !dataProviders.length || sessions[dataProviders[0]]) {
@@ -65,77 +146,7 @@
 
                 // TODO: IMPORTANT: Must also handle fail.
                 getProviders()
-                    .then(function (providers) {
-                        // TODO: Check if valid data provider is specified and retrun an error if not.
-                        var provider = providers[dataProviders[0]],
-                            authProviderFromDataProvidersFile,
-                            authProviderInstance,
-                            jsdoSession,
-                            loginSuccessHandler = function (jsdosession) {
-                                jsdosession.addCatalog(provider.catalogUris[0]).then(function() {
-                                    sessions[dataProviders[0]] = true;
-                                    $state.go(toState.name, toParams);
-                                }, function(jsdosession, result, details){
-                                    console.log(details);
-                                });
-                            }, 
-                            loginFailureHandler = function(jsdosession, result, info){        
-                                console.log(info);
-                            };
-                            
-                        if (provider.authenticationModel === progress.data.Session.AUTH_TYPE_OECP) {
-                            // has the data provider's AuthenticationProvider already been created?
-                            if (sessions[provider.authenticationProvider]) {
-                                // set the provider option-object's authImpl property so it has the AuthenticationProvider object
-                                provider.authImpl = {                    
-                                    provider: sessions[provider.authenticationProvider]                    
-                                };
-                                
-                                jsdoSession = new progress.data.JSDOSession(provider);
-                                jsdoSession.login()
-                                    .then(loginSuccessHandler,loginSuccessHandler);
-                                
-                            } else {
-                                authProviderFromDataProvidersFile = providers[provider.authenticationProvider];
-                                authProviderInstance = 
-                                     new progress.data.AuthenticationProvider(authProviderFromDataProvidersFile.authenticationURI);
-                                loginModal().then(function (result) {
-                                    
-                                    // App fails if you refresh the page since we get an "Already authenticated" error.
-                                    // I'm invalidating the token just as a temporary fix.
-                                    authProviderInstance.invalidate();
-                                    
-                                    authProviderInstance.authenticate(result.email, result.password)
-                                        .done(function (apInstance) {
-                                        sessions[provider.authenticationProvider] = apInstance;
-                                        provider.authImpl = {    
-                                            provider: apInstance
-                                        };
-                                        
-                                        jsdoSession = new progress.data.JSDOSession(provider);
-                                        jsdoSession.login()
-                                            .then(loginSuccessHandler, loginFailureHandler);
-                                        
-                                    }).fail(function(ap, result, info){
-                                        console.log("failed to get token \n" + info);
-                                    });
-                                }).catch(function (reason) {
-                                    console.log(reason);
-                                });
-                            }
-                        } else {
-                        // TODO: Optimize the code block below
-                            jsdoSession = new progress.data.JSDOSession(provider);
-                            
-                            loginModal().then(function (result) {
-                                jsdoSession.login(result.email, result.password)
-                                    .then(loginSuccessHandler, loginFailureHandler);
-                            }).catch(function (reason) {
-                                console.log(reason);
-                            });
-                
-                        }
-                });
+                    .then(getProvidersHandler);
             });
         })
         .config(function ($stateProvider, $urlRouterProvider) {
