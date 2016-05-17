@@ -3,14 +3,16 @@
 
     /**
      * @ngdoc overview
-     * @name builderTest
+     * @name SSO-0506
      * @description
      * #
      *
      * Main module of the application.
+     * whenshaw temporary comment: Stage one for SSO -- connect/log in to data providers on demand,
+     *     rather than all at once when the app starts
      */
     angular
-        .module('builderTest', [
+        .module('SSO-0506', [
             'ngAnimate',
             'ngCookies',
             'ngResource',
@@ -54,7 +56,9 @@
             }
 
             $rootScope.$on('$stateChangeStart', function (event, toState, toParams) {
-                 var dataProviders = toState.data ? toState.data.ensureJsdos : null;
+                 var dataProviders = toState.data ? toState.data.ensureJsdos : null,
+                 loginSuccessHandler,
+                 loginFailHandler;
 
                 // TODO: IMPORTANT: Authenticaton logic must change to handle mutiple providers.
                 if (!dataProviders || !dataProviders.length || sessions[dataProviders[0]]) {
@@ -63,12 +67,13 @@
 
                 event.preventDefault();
 
+         // whenshaw  The code that Alan and Wayne changed begins here, ends at line 147
                 // TODO: IMPORTANT: Must also handle fail.
                 getProviders()
                     .then(function (providers) {
-                        // TODO: Check if valid data provider is specified and retrun an error if not.
+                        // TODO: Check if valid data provider is specified and return an error if not.
                         var provider = providers[dataProviders[0]],
-                            authProviderFromDataProvidersFile,
+                            authProviderConfig,
                             authProviderInstance,
                             jsdoSession,
                             loginSuccessHandler = function (jsdosession) {
@@ -93,12 +98,13 @@
                                 
                                 jsdoSession = new progress.data.JSDOSession(provider);
                                 jsdoSession.login()
-                                    .then(loginSuccessHandler,loginSuccessHandler);
+                                    // .then(loginSuccessHandler,loginSuccessHandler);
+                                    .then(loginSuccessHandler,loginFailureHandler);
                                 
                             } else {
-                                authProviderFromDataProvidersFile = providers[provider.authenticationProvider];
+                                authProviderConfig = providers[provider.authenticationProvider];
                                 authProviderInstance = 
-                                     new progress.data.AuthenticationProvider(authProviderFromDataProvidersFile.authenticationURI);
+                                     new progress.data.AuthenticationProvider(authProviderConfig.authenticationURI);
                                 loginModal().then(function (result) {
                                     
                                     // App fails if you refresh the page since we get an "Already authenticated" error.
@@ -138,15 +144,68 @@
                 });
             });
         })
+         // whenshaw  The line above is the end of the code that Alan and Wayne modified
         .config(function ($stateProvider, $urlRouterProvider) {
             $stateProvider
                 .state('default', {
                     abstract:true,
                     url: '',
                     views: {
-                        'header': {"templateUrl":"components/static-header/template.html","controller":"StaticHeaderCtrl"},
-                        'main-navigation': {"templateUrl":"components/side-navigation/template.html","controller":"SideNavigationCtrl"},
                         
+                        'header': {
+                            templateUrl: 'components/header/template.html',
+                            controller: 'HeaderCtrl'
+                        },
+                        
+                        'side-navigation': {
+                            templateUrl: 'components/side-navigation/template.html',
+                            controller: 'SideNavigationCtrl'
+                        }
+                        
+                    }
+                })
+                .state('default.bin', {
+                    url: '/bin',
+                    views: {
+                        'content@': {
+                            templateUrl: 'modules/bin/views/index.html',
+                            controller: 'BinCtrl'
+                        }
+                    },
+                    resolve: {
+                        loadModule: ['$ocLazyLoad', function($ocLazyLoad) {
+                            return $ocLazyLoad.load('modules/bin/controllers/index.js');
+                        }]
+                    }
+                })
+                .state('default.bin.bin-view', {
+                    url: '/bin-view',
+                    templateUrl: 'modules/bin/views/bin-view.html',
+                    controller: 'BinBinViewCtrl',
+                    data: {
+                        ensureJsdos: ["Bin"]
+                    }
+                })
+                .state('default.customer', {
+                    url: '/customer',
+                    views: {
+                        'content@': {
+                            templateUrl: 'modules/customer/views/index.html',
+                            controller: 'CustomerCtrl'
+                        }
+                    },
+                    resolve: {
+                        loadModule: ['$ocLazyLoad', function($ocLazyLoad) {
+                            return $ocLazyLoad.load('modules/customer/controllers/index.js');
+                        }]
+                    }
+                })
+                .state('default.customer.customer-view', {
+                    url: '/customer-view',
+                    templateUrl: 'modules/customer/views/customer-view.html',
+                    controller: 'CustomerCustomerViewCtrl',
+                    data: {
+                        ensureJsdos: ["SSOwh0331"]
                     }
                 })
                 .state('default.dashboard', {
@@ -163,26 +222,26 @@
                         }]
                     }
                 })
-                .state('default.mod1', {
-                    url: '/mod-1',
+                .state('default.employee', {
+                    url: '/employee',
                     views: {
                         'content@': {
-                            templateUrl: 'modules/mod-1/views/index.html',
-                            controller: 'Mod1Ctrl'
+                            templateUrl: 'modules/employee/views/index.html',
+                            controller: 'EmployeeCtrl'
                         }
                     },
                     resolve: {
                         loadModule: ['$ocLazyLoad', function($ocLazyLoad) {
-                            return $ocLazyLoad.load('modules/mod-1/controllers/index.js');
+                            return $ocLazyLoad.load('modules/employee/controllers/index.js');
                         }]
                     }
                 })
-                .state('default.mod1.view-1', {
-                    url: '/view-1',
-                    templateUrl: 'modules/mod-1/views/view-1.html',
-                    controller: 'Mod1View1Ctrl',
+                .state('default.employee.employee-view', {
+                    url: '/employee-view',
+                    templateUrl: 'modules/employee/views/employee-view.html',
+                    controller: 'EmployeeEmployeeViewCtrl',
                     data: {
-                        ensureJsdos: ["SSOConsumer"]
+                        ensureJsdos: ["SSOwhTwo"]
                     }
                 })
                 .state('login', {
