@@ -3,14 +3,14 @@
 
     /**
      * @ngdoc overview
-     * @name test1
+     * @name test
      * @description
      * #
      *
      * Main module of the application.
      */
     angular
-        .module('test1', [
+        .module('test', [
             'ngAnimate',
             'ngCookies',
             'ngResource',
@@ -33,10 +33,48 @@
                 return instance.result;
             };
         })
-        .run(function ($q, $http, $rootScope, $state, $window, loginModal) {
-            var dataProviders,
-                sessions = {},
-                authentications = {};
+        .service('jsdosessions', function () {
+            var that = this;
+
+            this.sessions = {};
+            //this.existingSessions = {};
+        
+            this.logout = function () {
+                var promises = [];
+                
+                for (var key in that.sessions) {
+                    var session = that.sessions[key];
+                    console.log(session);
+                    if (session.loginResult === 1) {
+                        promises.push(session.logout());
+                    }
+                }
+                
+                // When all the logouts are finished, clear the array of 
+                // sessions.
+                $.when
+                    .apply(null, promises)
+                    .done(function () {
+                        that.sessions = {};
+                        // Clear up ServicesManager
+                        progress.data.ServicesManager._services = [];    
+                        progress.data.ServicesManager._resources = [];
+                        progress.data.ServicesManager._data = [];
+                        progress.data.ServicesManager._sessions = [];
+                    });
+            };
+        })
+        .filter('formatValue', function() {
+            return function(input, format) {
+                if (input !== null && input !== undefined) {
+                    return kendo.format(format, input);
+                } else {
+                    return '';
+                }
+            }
+        })
+        .run(function ($q, $http, $rootScope, $state, $window, loginModal, jsdosessions) {
+            var dataProviders;
 
             function getProviders() {
                 return $q(function (resolve, reject) {
@@ -55,102 +93,42 @@
             }
 
             $rootScope.$on('$stateChangeStart', function (event, toState, toParams) {
-                 var dataProviders = toState.data ? toState.data.ensureJsdos : null;
+                var dataProviders = toState.data ? toState.data.ensureJsdos : null;
 
-                // TODO: IMPORTANT: Authenticaton logic must change to handle mutiple providers.
-                if (!dataProviders || !dataProviders.length || sessions[dataProviders[0]]) {
+                if (!dataProviders || !dataProviders.length || jsdosessions.sessions[dataProviders[0]]) {
                     return;
+                }
+
+                function getProvidersSuccess(providers) {
+                    var provider = providers[dataProviders[0]];
+
+                    try {
+                        progress.data.getSession({
+                            name: provider.name,
+                            authenticationModel: provider.authenticationModel,
+                            serviceURI: provider.serviceURI,
+                            catalogURI: provider.catalogUris,
+                            loginCallback: loginModal
+                        })
+                        .done(function(jsdosession) {
+                            jsdosessions.sessions[dataProviders[0]] = jsdosession;
+                            $state.go(toState.name, toParams);
+                        })
+                        .fail(function(result, details) {
+                            console.log(details);
+                        });
+                    } catch(e) {
+                        console.log(e);
+                    }
                 }
 
                 event.preventDefault();
 
-                // TODO: IMPORTANT: Must also handle fail.
                 getProviders()
-                    .then(function (providers) {
-                        // TODO: Check if valid data provider is specified and return an error if not.
-                        var provider = providers[dataProviders[0]],
-                            authProviderConfig,
-                            authProviderInstance,
-                            jsdoSession,
-                            deferred = $.Deferred(),
-                            loginSuccessHandler = function (jsdosession) {
-                                return jsdosession.addCatalog(provider.catalogUris[0]);
-                            },
-                            addCatalogSuccessHandler = function() {
-                                        sessions[dataProviders[0]] = true;
-                                        $state.go(toState.name, toParams);
-                            },
-                            errorHandler = function(errorSource, result, info){
-                                if (errorSource instanceof progress.data.JSDOSession) {
-                                    console.log("failed to initialize session manager \n" + info);
-                                } else if (errorSource instanceof progress.data.AuthenticationProvider) {
-                                    console.log("failed to get token \n" + info);
-                                } else if (errorSource instanceof Error) {
-                                    console.log("failed to initialize session manager \n" + errorSource);
-                                } else if ((info instanceof Array) && info[0] && info[0].hasOwnProperty("catalogURI")) {
-                                    console.log("error getting catalog \n" + info[0].errorObject); // or whatever
-                                } else if (typeof errorSource === "string") {
-                                    console.log("failed to initialize session manager \n" + errorSource);
-                                } else {
-                                    throw new Error("unexpected error initializing session manager");
-                                }
-                            };
-                                                    
-                        if (provider.authenticationModel === progress.data.Session.AUTH_TYPE_SSO) {
-                            // has the data provider's AuthenticationProvider already been created?
-                            if (authentications[provider.authenticationProvider]) {
-                                // set the provider option-object's authImpl property so it has the AuthenticationProvider object
-                                provider.authImpl = {                    
-                                    provider: authentications[provider.authenticationProvider]                    
-                                };
-                                
-                                jsdoSession = new progress.data.JSDOSession(provider);
-                                
-                                deferred.resolve(jsdoSession.login(null, null, provider));
- 
-                            } else {
-                                authProviderConfig = providers[provider.authenticationProvider];
-                                authProviderInstance = 
-                                     new progress.data.AuthenticationProvider(authProviderConfig.authenticationURI);
-                                
-                                loginModal()
-                                .then(function (result) {
-                                    
-                                    // App fails if you refresh the page since we get an "Already authenticated" error.
-                                    // I'm invalidating the token just as a temporary fix.
-                                    authProviderInstance.invalidate();
-                                    
-                                    authProviderInstance.authenticate(result.email, result.password)
-                                    .then(function (apInstance, result, info) {
-                                        authentications[provider.authenticationProvider] = apInstance;
-                                        provider.authImpl = {    
-                                            provider: apInstance
-                                        };
-                                        
-                                        jsdoSession = new progress.data.JSDOSession(provider);
-                                        deferred.resolve(jsdoSession.login(null, null, provider));
-                                    });
-                                })
-                                .catch(function (reason) {
-                                    console.log(reason);
-                                });
-                            }
-                        } else {
-                            jsdoSession = new progress.data.JSDOSession(provider);
-                            
-                            loginModal()
-                            .then(function (result) {
-                                deferred.resolve(jsdoSession.login(result.email, result.password));
-                            });
-                        }
-                        
-                        deferred.then(function(loginPromise) {
-                            loginPromise
-                            .then(loginSuccessHandler)
-                            .then(addCatalogSuccessHandler)
-                            .then(undefined, errorHandler);
-                        });
-                });
+                    .then(getProvidersSuccess)
+                    .catch(function(reason) {
+                        console.log(reason);
+                    });
             });
         })
         .config(function ($stateProvider, $urlRouterProvider) {
@@ -159,9 +137,21 @@
                     abstract:true,
                     url: '',
                     views: {
-                        'header': {"templateUrl":"components/static-header/template.html","controller":"StaticHeaderCtrl"},
-                        'main-navigation': {"templateUrl":"components/side-navigation/template.html","controller":"SideNavigationCtrl"},
                         
+                        'header': {
+                            templateUrl: 'scripts/layout-components/header/template.html',
+                            controller: 'HeaderCtrl'
+                        },
+                        
+                        'side-navigation': {
+                            templateUrl: 'scripts/layout-components/side-navigation/template.html',
+                            controller: 'SideNavigationCtrl'
+                        }
+                        
+                    },
+                    // Injects the jsdosessions service as a dependency
+                    resolve: {
+                        jsdosessions: "jsdosessions"
                     }
                 })
                 .state('default.dashboard', {
@@ -178,34 +168,26 @@
                         }]
                     }
                 })
-                .state('default.mod1', {
-                    url: '/mod-1',
+                .state('default.ssad', {
+                    url: '/ssad',
                     views: {
                         'content@': {
-                            templateUrl: 'modules/mod-1/views/index.html',
-                            controller: 'Mod1Ctrl'
+                            templateUrl: 'modules/ssad/views/index.html',
+                            controller: 'SsadCtrl'
                         }
                     },
                     resolve: {
                         loadModule: ['$ocLazyLoad', function($ocLazyLoad) {
-                            return $ocLazyLoad.load('modules/mod-1/controllers/index.js');
+                            return $ocLazyLoad.load('modules/ssad/controllers/index.js');
                         }]
                     }
                 })
-                .state('default.mod1.customers-i-guess', {
-                    url: '/customers-i-guess',
-                    templateUrl: 'modules/mod-1/views/customers-i-guess.html',
-                    controller: 'Mod1CustomersIGuessCtrl',
+                .state('default.ssad.sadasd', {
+                    url: '/sadasd',
+                    templateUrl: 'modules/ssad/views/sadasd/index.html',
+                    controller: 'SsadSadasdCtrl',
                     data: {
-                        ensureJsdos: []
-                    }
-                })
-                .state('default.mod1.cust', {
-                    url: '/cust',
-                    templateUrl: 'modules/mod-1/views/cust.html',
-                    controller: 'Mod1CustCtrl',
-                    data: {
-                        ensureJsdos: ["test"]
+                        ensureJsdos: ["anonService"]
                     }
                 })
                 .state('login', {
